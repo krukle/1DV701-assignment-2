@@ -6,6 +6,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -15,72 +16,86 @@ import java.util.StringTokenizer;
 /**
  * Class for HTTP server.
  */
-public class HttpServer {
-  private final int portNumber;
+public class HttpServer implements Runnable {
   private final String rootDirectory;
+  private Socket clientSocket = null;
+  private BufferedReader in;
+  private PrintWriter header;
+  private BufferedOutputStream payload;
 
-  HttpServer(int portNumber, String rootDirectory) {
-    this.portNumber = portNumber;
-    this.rootDirectory = rootDirectory;
-  }
+  enum StatusCode {
+    OK(200, "OK"),
+    REDIRECT(302, "Found"),
+    NOT_FOUND(404, "Not Found"),
+    INTERNAL_SERVER_ERROR(500, "Internal Server Error");
 
-  private void run() {
-    try (ServerSocket serverSocket = new ServerSocket(portNumber)) {
-      System.out.println("Server started, listening on port " + portNumber);
+    public int code;
+    public String msg;
 
-      // Socket clientSocket = serverSocket.accept();
-      // Thread thread = new Thread();
-      while (true) {
-        Socket clientSocket = serverSocket.accept();
-        BufferedReader in = 
-            new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-        PrintWriter out = 
-            new PrintWriter(clientSocket.getOutputStream(), false);
-        BufferedOutputStream dataOut = 
-            new BufferedOutputStream(clientSocket.getOutputStream());
-        String inputLine = in.readLine();
+    StatusCode(int code, String msg) {
+      this.code = code;
+      this.msg = msg;
+    }
 
-        do {
-          System.out.println(inputLine);
-          StringTokenizer parse = new StringTokenizer(inputLine);
-          String method = parse.nextToken();
-          String item = parse.nextToken();
-          
-          if (method.equalsIgnoreCase("GET")) {
-            try {
-              File file   = getPath(item);
-              Path path   = file.toPath();
-              String type = Files.probeContentType(path);
-
-              out.println("HTTP/1.1 200 OK");
-              out.println("Server: Java Server from Christoffer and Olof");
-              out.println("Date: " + new Date());
-              out.println("Content-type: " + ((type != null) ? type : "text/html"));
-              out.println("Content-length: " + file.length());
-              out.println();
-              out.flush();
-              
-              byte[] data = Files.readAllBytes(path);
-              dataOut.write(data);
-              dataOut.flush();
-            } catch (NoSuchFileException e) {
-              System.err.println(e);
-              fileNotFound(out, dataOut);
-            }
-
-    
-          }
-          in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-        } while ((inputLine = in.readLine()) != null);
-      }
-    } catch (IOException e) {
-      System.out.println("Exception caught when trying to listen on port "
-                + portNumber + " or listening for a connection");
-      System.out.println(e.getMessage());
+    @Override
+    public String toString() {
+      return this.code + " " + this.msg;
     }
   }
 
-  private File getPath(String item) {
+  HttpServer(String rootDirectory, Socket clientSocket) {
+    this.rootDirectory = rootDirectory;
+    this.clientSocket = clientSocket;
+  }
+
+  @Override
+  public void run() {
+    try {
+      header = new PrintWriter(clientSocket.getOutputStream(), false);
+      payload = new BufferedOutputStream(clientSocket.getOutputStream());
+      in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+      String request = in.readLine();
+
+      do {
+        System.out.println(request);
+        StringTokenizer parse = new StringTokenizer(request);
+        String method = parse.nextToken();
+        String item = parse.nextToken();
+        
+        if (method.equalsIgnoreCase("GET")) {
+          try {
+            if (item.equalsIgnoreCase("/redirect.html")) {
+              sendFile("index.html", StatusCode.REDIRECT);
+            } else {
+              sendFile(item, StatusCode.OK);
+            }
+          } catch (NoSuchFileException e) {
+            sendString(StatusCode.NOT_FOUND);
+          }
+        } else {
+          sendString(StatusCode.INTERNAL_SERVER_ERROR);
+        }
+        in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+      } while ((request = in.readLine()) != null);
+    } catch (SocketException se) {
+      se.printStackTrace();
+      System.err.println("Unable to access closed socket.");
+      Thread.currentThread().interrupt();
+      return;
+    } catch (IOException ioe) {
+      ioe.printStackTrace();
+      System.err.println("Something went wrong. Closing thread.");
+    }
+  }
+
+
+  /**
+   * Get a File from the root directory.
+   *
+   * @param item The name of item to look for.
+   * @return File object of the specified item.
+   */
+  private File getFile(String item) {
     File htmlFile = new File(rootDirectory, item);
     if (htmlFile.isDirectory()) {
       htmlFile = new File(htmlFile, "index.html");
@@ -88,17 +103,43 @@ public class HttpServer {
     return htmlFile;
   }
 
-  private void fileNotFound(PrintWriter out, BufferedOutputStream dataOut) throws IOException {
-    byte[] output = "404 Not Found".getBytes();
-    out.println("HTTP/1.1 404 File Not Found");
-    out.println("Server: Java Server from Christoffer and Olof");
-    out.println("Date: " + new Date());
-    out.println("Content-type: text/plain");
-    out.println("Content-length: " + output.length);
-    out.println();
-    out.flush();
-    dataOut.write(output);
-    dataOut.flush();
+  /**
+   * Generates a header message using statusCode and sends it through PrintWriter; header.
+   * Generates a bytearray from statusCode and sends it through BufferedOutputStream; payload.
+   * @param statusCode HTTP status code.
+   * @throws IOException If an I/O occurs in BufferedOutputStream; payload.
+   */
+  private void sendString(StatusCode statusCode) throws IOException {
+    String status = statusCode.toString();
+    byte[] output = status.getBytes();
+    send(statusCode, output, "text/plain");
+  }
+
+  /**
+   * Send a HTTP 200 OK with specified item as payload.
+   *
+   * @param item The name of the item to look for.
+   * @throws IOException if the file can't be read.
+   */
+  private void sendFile(String item, StatusCode statusCode) throws IOException {
+    final File file   = getFile(item);
+    final Path path   = file.toPath();
+    final String type = Files.probeContentType(path);
+    final byte[] data = Files.readAllBytes(path);
+    send(statusCode, data, type);
+  }
+
+  private void send(StatusCode statusCode, byte[] data, String type) throws IOException {
+    header.println("HTTP/1.1 " + statusCode.toString());
+    header.println("Server: Java Server from Christoffer and Olof");
+    header.println("Date: " + new Date());
+    header.println("Content-type: " + ((type != null) ? type : "text/html"));
+    header.println("Content-length: " + data.length);
+    header.println();
+    header.flush();
+
+    payload.write(data);
+    payload.flush();
   }
 
   /**
@@ -113,14 +154,27 @@ public class HttpServer {
       System.exit(1);
     }
 
+    int portNumber = 80;
+
     try {
-      Integer.parseInt(args[0]);
+      portNumber = Integer.parseInt(args[0]);
     } catch (NumberFormatException e) {
       System.err.println("The port needs to be a number.");
       System.exit(1);
     }
 
-    HttpServer server = new HttpServer(Integer.parseInt(args[0]), args[1]);
-    server.run();
+    try (ServerSocket serverSocket = new ServerSocket(portNumber)) {
+      System.out.println("Server started, listening on port " + portNumber);
+      while (true) {
+        HttpServer server = new HttpServer(args[1], serverSocket.accept());
+        Thread thread = new Thread(server);
+        thread.start();
+        System.out.println("Connection started.");
+      }
+    } catch (IOException e) {
+      System.out.println("Exception caught when trying to listen on port "
+                + portNumber + " or listening for a connection");
+      System.out.println(e.getMessage());
+    }
   }
 }
