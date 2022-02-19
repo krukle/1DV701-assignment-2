@@ -1,15 +1,10 @@
-import java.awt.image.BufferedImage;
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -23,8 +18,6 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.StringTokenizer;
-
-import javax.imageio.ImageIO;
 
 /**
  * Class for HTTP server.
@@ -92,20 +85,21 @@ public class HttpServer implements Runnable {
           sendString(StatusCode.NOT_FOUND);
         }
       } else if (method.equalsIgnoreCase("POST")) {
+        //TODO: Fix crash when no image is selected and Upload button is pressed.
+        String boundary = "";
         String fileName = "";
-        while (!(fileName = in.readLine()).contains("filename=")) {}
+        while (!(boundary = in.readLine()).contains("boundary=")) {} //Find boundary
+        while (!(fileName = in.readLine()).contains("filename=")) {} //Find file name
+        while (!in.readLine().isBlank()) {}                          //Find start of image data
+        
         fileName = fileName.split("filename=")[1].replace("\"", "");
-        // while (!(in.readLine()).isBlank()) {}
-        // System.out.println(in.readLine());
-        // System.out.println(in.readLine());
-        // System.out.println(in.readLine());
-        // System.out.println(in.readLine());
-        // System.exit(0);
-        while (!in.readLine().isBlank()) {}
-
-        FileOutputStream fos = new FileOutputStream(fileName);
+        FileOutputStream fos = new FileOutputStream(new File(rootDirectory, fileName));
         List<Integer> test = new ArrayList<>();
-        List<Integer> end = Arrays.asList(13, 10, 45, 45, 45, 45, 45, 45);
+
+        // Construct end array
+        List<Integer> end = new ArrayList<>(Arrays.asList(13, 10, 45, 45));
+        boundary.split("boundary=")[1].chars().map(x -> (int)x).forEach(i -> end.add(i));
+
         int ch = 0;
         while ((ch = in.read()) != -1) {
           test.add(ch);
@@ -115,12 +109,11 @@ public class HttpServer implements Runnable {
             }
             test.remove(0);
           }
-          
           fos.write(ch);
         }
-        System.out.println("DONE!");
         fos.flush();
         fos.close();
+        send(StatusCode.OK, ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</>").getBytes(), "text/html");
       } else {
         sendString(StatusCode.INTERNAL_SERVER_ERROR);
       }
@@ -143,19 +136,6 @@ public class HttpServer implements Runnable {
       }
     }
   }
-
-  private boolean find(byte[] buffer, byte[] key) {
-    for (int i = 0; i <= buffer.length - key.length; i++) {
-      int j = 0;
-      while (j < key.length && buffer[i + j] == key[j]) {
-        j++;
-      }
-      if (j == key.length) {
-        return true;
-      }
-    }
-    return false;
-}
 
   /**
    * Get a File from the root directory.
