@@ -1,17 +1,30 @@
+import java.awt.image.BufferedImage;
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
 import java.util.StringTokenizer;
+
+import javax.imageio.ImageIO;
 
 /**
  * Class for HTTP server.
@@ -53,30 +66,64 @@ public class HttpServer implements Runnable {
     try {
       header = new PrintWriter(clientSocket.getOutputStream(), false);
       payload = new BufferedOutputStream(clientSocket.getOutputStream());
-      in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-      String request = in.readLine();
+      InputStream is = clientSocket.getInputStream();
+      in = new BufferedReader(new InputStreamReader(is, StandardCharsets.ISO_8859_1));
+      // in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 
-      do {
-        System.out.println(request);
-        StringTokenizer parse = new StringTokenizer(request);
-        String method = parse.nextToken();
-        String item = parse.nextToken();
-        
-        if (method.equalsIgnoreCase("GET")) {
-          try {
-            if (item.equalsIgnoreCase("/redirect.html")) {
-              sendFile("index.html", StatusCode.REDIRECT);
-            } else {
-              sendFile(item, StatusCode.OK);
-            }
-          } catch (NoSuchFileException e) {
-            sendString(StatusCode.NOT_FOUND);
+      String request = in.readLine();
+      StringTokenizer parse = new StringTokenizer(request);
+      String method = parse.nextToken();
+      String item = parse.nextToken();
+      String version = parse.nextToken();
+      System.out.println("---------------------------------------------------------------------");
+      System.out.println("Request from \"" + clientSocket.getRemoteSocketAddress() + "\":");
+      System.out.println("  Method: " + method);
+      System.out.println("  Path: " + item);
+      System.out.println("  Version: " + version);
+
+      if (method.equalsIgnoreCase("GET")) {
+        try {
+          if (item.equalsIgnoreCase("/redirect.html")) {
+            sendFile("index.html", StatusCode.REDIRECT);
+          } else {
+            sendFile(item, StatusCode.OK);
           }
-        } else {
-          sendString(StatusCode.INTERNAL_SERVER_ERROR);
+        } catch (NoSuchFileException e) {
+          sendString(StatusCode.NOT_FOUND);
         }
-        in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-      } while ((request = in.readLine()) != null);
+      } else if (method.equalsIgnoreCase("POST")) {
+        String fileName = "";
+        while (!(fileName = in.readLine()).contains("filename=")) {}
+        fileName = fileName.split("filename=")[1].replace("\"", "");
+        // while (!(in.readLine()).isBlank()) {}
+        // System.out.println(in.readLine());
+        // System.out.println(in.readLine());
+        // System.out.println(in.readLine());
+        // System.out.println(in.readLine());
+        // System.exit(0);
+        while (!in.readLine().isBlank()) {}
+
+        FileOutputStream fos = new FileOutputStream(fileName);
+        List<Integer> test = new ArrayList<>();
+        List<Integer> end = Arrays.asList(13, 10, 45, 45, 45, 45, 45, 45);
+        int ch = 0;
+        while ((ch = in.read()) != -1) {
+          test.add(ch);
+          if (test.size() == end.size()) {
+            if (test.equals(end)) {
+              break;
+            }
+            test.remove(0);
+          }
+          
+          fos.write(ch);
+        }
+        System.out.println("DONE!");
+        fos.flush();
+        fos.close();
+      } else {
+        sendString(StatusCode.INTERNAL_SERVER_ERROR);
+      }
     } catch (SocketException se) {
       se.printStackTrace();
       System.err.println("Unable to access closed socket.");
@@ -85,9 +132,30 @@ public class HttpServer implements Runnable {
     } catch (IOException ioe) {
       ioe.printStackTrace();
       System.err.println("Something went wrong. Closing thread.");
+    } finally {
+      try {
+        in.close();
+        header.close();
+        payload.close();
+        clientSocket.close();
+      } catch (Exception e) {
+        System.err.println("Error closing stream: " + e.getMessage());
+      }
     }
   }
 
+  private boolean find(byte[] buffer, byte[] key) {
+    for (int i = 0; i <= buffer.length - key.length; i++) {
+      int j = 0;
+      while (j < key.length && buffer[i + j] == key[j]) {
+        j++;
+      }
+      if (j == key.length) {
+        return true;
+      }
+    }
+    return false;
+}
 
   /**
    * Get a File from the root directory.
@@ -130,14 +198,20 @@ public class HttpServer implements Runnable {
   }
 
   private void send(StatusCode statusCode, byte[] data, String type) throws IOException {
-    header.println("HTTP/1.1 " + statusCode.toString());
-    header.println("Server: Java Server from Christoffer and Olof");
-    header.println("Date: " + new Date());
-    header.println("Content-type: " + ((type != null) ? type : "text/html"));
-    header.println("Content-length: " + data.length);
+    String version = "HTTP/1.1 ";
+    String status = statusCode.toString();
+    String server = "Server: Java Server from Christoffer and Olof";
+    String date = "Date: " + new Date();
+    String contentType = "Content-type: " + ((type != null) ? type : "text/html");
+    String length = "Content-length: " + data.length;
+
+    System.out.println("Response:");
+    System.out.println("  Version: " + version);
+    System.out.println("  Status: " + status);
+    System.out.println("  " + String.join("\r\n  ", server, date, contentType, length));
+    header.println(String.join("\r\n", (version + status), server, date, contentType, length));
     header.println();
     header.flush();
-
     payload.write(data);
     payload.flush();
   }
@@ -163,13 +237,22 @@ public class HttpServer implements Runnable {
       System.exit(1);
     }
 
+    String rootDirectory = args[1];
+    Path path = Path.of(System.getProperty("user.dir"), rootDirectory);
+    if (!Files.isDirectory(path)) {
+      System.err.println("The directory \"" + path.toString() + "\" does not exist.");
+      System.exit(1);
+    }
+
     try (ServerSocket serverSocket = new ServerSocket(portNumber)) {
-      System.out.println("Server started, listening on port " + portNumber);
+      System.out.println("Server listening on port " + portNumber);
+      System.out.println("Serving content from: " + path.toString());
       while (true) {
-        HttpServer server = new HttpServer(args[1], serverSocket.accept());
+        HttpServer server = new HttpServer(path.toString(), serverSocket.accept());
         Thread thread = new Thread(server);
         thread.start();
-        System.out.println("Connection started.");
+        System.out.println();
+        System.out.println("Client connected, assigned a new thread.");
       }
     } catch (IOException e) {
       System.out.println("Exception caught when trying to listen on port "
