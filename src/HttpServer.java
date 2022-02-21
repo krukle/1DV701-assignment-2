@@ -1,9 +1,9 @@
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
@@ -16,7 +16,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.StringTokenizer;
 
 /**
@@ -32,6 +34,7 @@ public class HttpServer implements Runnable {
   enum StatusCode {
     OK(200, "OK"),
     REDIRECT(302, "Found"),
+    BAD_REQUEST(400, "Bad Request"),
     NOT_FOUND(404, "Not Found"),
     INTERNAL_SERVER_ERROR(500, "Internal Server Error");
 
@@ -49,6 +52,20 @@ public class HttpServer implements Runnable {
     }
   }
 
+  enum FileType {
+    PNG(Arrays.asList(137, 80, 78, 71, 13, 10, 26, 10),
+        Arrays.asList(73, 69, 78, 68, 174, 66, 96, 130)),
+    JPG(Arrays.asList(255, 216, 255), Arrays.asList(255, 217, 13, 10));
+
+    public List<Integer> start;
+    public List<Integer> end;
+
+    FileType(List<Integer> start, List<Integer> end) {
+      this.start = start;
+      this.end = end;
+    }
+  }
+
   HttpServer(String rootDirectory, Socket clientSocket) {
     this.rootDirectory = rootDirectory;
     this.clientSocket = clientSocket;
@@ -59,69 +76,45 @@ public class HttpServer implements Runnable {
     try {
       header = new PrintWriter(clientSocket.getOutputStream(), false);
       payload = new BufferedOutputStream(clientSocket.getOutputStream());
-      InputStream is = clientSocket.getInputStream();
-      in = new BufferedReader(new InputStreamReader(is, StandardCharsets.ISO_8859_1));
-      // in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+      in = new BufferedReader(
+        new InputStreamReader(clientSocket.getInputStream(), StandardCharsets.ISO_8859_1));
 
-      String request = in.readLine();
-      StringTokenizer parse = new StringTokenizer(request);
-      String method = parse.nextToken();
-      String item = parse.nextToken();
-      String version = parse.nextToken();
+      Map<String, String> headers = getHeaders(in);
       System.out.println("---------------------------------------------------------------------");
       System.out.println("Request from \"" + clientSocket.getRemoteSocketAddress() + "\":");
-      System.out.println("  Method: " + method);
-      System.out.println("  Path: " + item);
-      System.out.println("  Version: " + version);
+      System.out.println("  Method: " + headers.get("Method"));
+      System.out.println("  Item: " + headers.get("Item"));
+      System.out.println("  Version: " + headers.get("Version"));
 
-      if (method.equalsIgnoreCase("GET")) {
+      if (headers.get("Method").equalsIgnoreCase("GET")) {
         try {
-          if (item.equalsIgnoreCase("/redirect.html")) {
+          if (headers.get("Item").equalsIgnoreCase("/redirect.html")) {
             sendFile("index.html", StatusCode.REDIRECT);
           } else {
-            sendFile(item, StatusCode.OK);
+            sendFile(headers.get("Item"), StatusCode.OK);
           }
         } catch (NoSuchFileException e) {
           sendString(StatusCode.NOT_FOUND);
         }
-      } else if (method.equalsIgnoreCase("POST")) {
-        //TODO: Fix crash when no image is selected and Upload button is pressed.
-        String boundary = "";
+      } else if (headers.get("Method").equalsIgnoreCase("POST")) {
         String fileName = "";
-        while (!(boundary = in.readLine()).contains("boundary=")) {} //Find boundary
         while (!(fileName = in.readLine()).contains("filename=")) {} //Find file name
-        while (!in.readLine().isBlank()) {}                          //Find start of image data
+        while (!in.readLine().isBlank()) {} //Find start of image data
         
         fileName = fileName.split("filename=")[1].replace("\"", "");
-        FileOutputStream fos = new FileOutputStream(new File(rootDirectory, fileName));
-        List<Integer> test = new ArrayList<>();
-
-        // Construct end array
-        List<Integer> end = new ArrayList<>(Arrays.asList(13, 10, 45, 45));
-        boundary.split("boundary=")[1].chars().map(x -> (int)x).forEach(i -> end.add(i));
-
-        int ch = 0;
-        while ((ch = in.read()) != -1) {
-          test.add(ch);
-          if (test.size() == end.size()) {
-            if (test.equals(end)) {
-              break;
-            }
-            test.remove(0);
-          }
-          fos.write(ch);
+        try {
+          //TODO: Choose correct FileType depending on headers.
+          parseImage(getFile(fileName), in, FileType.JPG);
+          send(StatusCode.OK, ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</>").getBytes(), "text/html");
+        } catch (FileNotFoundException fnfe) {
+          sendString(StatusCode.BAD_REQUEST);
         }
-        fos.flush();
-        fos.close();
-        send(StatusCode.OK, ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</>").getBytes(), "text/html");
       } else {
         sendString(StatusCode.INTERNAL_SERVER_ERROR);
       }
     } catch (SocketException se) {
       se.printStackTrace();
       System.err.println("Unable to access closed socket.");
-      Thread.currentThread().interrupt();
-      return;
     } catch (IOException ioe) {
       ioe.printStackTrace();
       System.err.println("Something went wrong. Closing thread.");
@@ -131,6 +124,8 @@ public class HttpServer implements Runnable {
         header.close();
         payload.close();
         clientSocket.close();
+        Thread.currentThread().interrupt();
+        return;
       } catch (Exception e) {
         System.err.println("Error closing stream: " + e.getMessage());
       }
@@ -138,15 +133,74 @@ public class HttpServer implements Runnable {
   }
 
   /**
+   * Read the headers from the BufferedReader in and put them in a HashMap.
+   *
+   * @param in The BufferedReader
+   * @return The HashMap containing the headers.
+   */
+  private Map<String, String> getHeaders(BufferedReader in) throws IOException {
+    Map<String, String> headers = new HashMap<>();
+    String header = in.readLine();
+    StringTokenizer parse = new StringTokenizer(header);
+    headers.put("Method", parse.nextToken());
+    headers.put("Item", parse.nextToken());
+    headers.put("Version", parse.nextToken());
+    while (!(header = in.readLine()).isBlank()) {
+      String[] kv = header.split(": ");
+      headers.put(kv[0], kv[1]);
+    }
+    return headers;
+  }
+
+  /**
+   * Parse the image data.
+   *
+   * @param file The File to write the data to.
+   * @param in The BufferedReader to read data from.
+   * @param fileType The type of image to parse.
+   */
+  private void parseImage(File file, BufferedReader in, FileType fileType) throws IOException {
+    FileOutputStream fos = new FileOutputStream(file);
+    List<Integer> test = new ArrayList<>();
+    while (test.add(in.read())) {
+      if (test.size() == fileType.start.size()) {
+        if (test.equals(fileType.start)) {
+          test.clear();
+          break;
+        }
+        test.remove(0);
+      }
+    }
+    for (Integer b : fileType.start) {
+      fos.write(b);
+    }
+    int ch = 0;
+    while ((ch = in.read()) != -1) {
+      test.add(ch);
+      if (test.size() == fileType.end.size()) {
+        if (test.equals(fileType.end)) {
+          fos.write(ch);
+          break;
+        }
+        test.remove(0);
+      }
+      fos.write(ch);
+    }
+    fos.flush();
+    fos.close();
+  }
+
+  /**
    * Get a File from the root directory.
    *
    * @param item The name of item to look for.
    * @return File object of the specified item.
+   * @throws FileNotFoundException if the item is a directory.
    */
-  private File getFile(String item) {
+  private File getFile(String item) throws FileNotFoundException {
     File htmlFile = new File(rootDirectory, item);
     if (htmlFile.isDirectory()) {
-      htmlFile = new File(htmlFile, "index.html");
+      throw new FileNotFoundException("The requested item is a directory.");
     }
     return htmlFile;
   }
@@ -170,7 +224,12 @@ public class HttpServer implements Runnable {
    * @throws IOException if the file can't be read.
    */
   private void sendFile(String item, StatusCode statusCode) throws IOException {
-    final File file   = getFile(item);
+    File file;
+    try {
+      file   = getFile(item);
+    } catch (FileNotFoundException e) {
+      file = new File(rootDirectory, "index.html");
+    }
     final Path path   = file.toPath();
     final String type = Files.probeContentType(path);
     final byte[] data = Files.readAllBytes(path);
