@@ -1,3 +1,5 @@
+package httpserver;
+
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
@@ -14,7 +16,6 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -30,41 +31,6 @@ public class HttpServer implements Runnable {
   private BufferedReader in;
   private PrintWriter header;
   private BufferedOutputStream payload;
-
-  enum StatusCode {
-    OK(200, "OK"),
-    REDIRECT(302, "Found"),
-    BAD_REQUEST(400, "Bad Request"),
-    NOT_FOUND(404, "Not Found"),
-    INTERNAL_SERVER_ERROR(500, "Internal Server Error");
-
-    public int code;
-    public String msg;
-
-    StatusCode(int code, String msg) {
-      this.code = code;
-      this.msg = msg;
-    }
-
-    @Override
-    public String toString() {
-      return this.code + " " + this.msg;
-    }
-  }
-
-  enum FileType {
-    PNG(Arrays.asList(137, 80, 78, 71, 13, 10, 26, 10),
-        Arrays.asList(73, 69, 78, 68, 174, 66, 96, 130)),
-    JPG(Arrays.asList(255, 216, 255), Arrays.asList(255, 217, 13, 10));
-
-    public List<Integer> start;
-    public List<Integer> end;
-
-    FileType(List<Integer> start, List<Integer> end) {
-      this.start = start;
-      this.end = end;
-    }
-  }
 
   HttpServer(String rootDirectory, Socket clientSocket) {
     this.rootDirectory = rootDirectory;
