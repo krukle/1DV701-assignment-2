@@ -39,7 +39,7 @@ has provided all the parts necessary to get full marks. Take note of the documen
 (visible in the file explorer) and the way compiling and running the solution works. Take special note of where
 the `.java` main file is in relation to the public folder.
 
-![Example image](img\example.png)
+![Example image](img/example.png)
 
 *How to start:* 
 
