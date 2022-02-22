@@ -20,6 +20,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.StringTokenizer;
 
 /**
@@ -39,6 +40,7 @@ public class HttpServer implements Runnable {
 
   @Override
   public void run() {
+    System.out.println("Client connected, assigned a new thread.");
     try {
       header = new PrintWriter(clientSocket.getOutputStream(), false);
       payload = new BufferedOutputStream(clientSocket.getOutputStream());
@@ -66,14 +68,18 @@ public class HttpServer implements Runnable {
         String fileName = "";
         while (!(fileName = in.readLine()).contains("filename=")) {} //Find file name
         while (!in.readLine().isBlank()) {} //Find start of image data
-        
         fileName = fileName.split("filename=")[1].replace("\"", "");
+        
         try {
           //TODO: Should user be able to overwite existing images?
           parseImage(getFile(fileName), in);
           send(StatusCode.OK, ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</>").getBytes(), "text/html");
         } catch (FileNotFoundException fnfe) {
           sendString(StatusCode.BAD_REQUEST);
+          fnfe.printStackTrace();
+        } catch (IllegalArgumentException iae) {
+          sendString(StatusCode.BAD_REQUEST);
+          iae.printStackTrace();
         }
       } else {
         sendString(StatusCode.INTERNAL_SERVER_ERROR);
@@ -124,8 +130,11 @@ public class HttpServer implements Runnable {
    * @param file The File to write the data to.
    * @param in The BufferedReader to read data from.
    */
-  private void parseImage(File file, BufferedReader in) throws IOException {
-    FileType fileType    = FileType.fromString(file.getName().split("\\.")[1]);  
+  private void parseImage(File file, BufferedReader in) 
+      throws IOException, IllegalArgumentException {
+    FileType fileType = FileType.fromString(
+        Optional.ofNullable(file.getName()).filter(
+          f -> f.contains(".")).map(f -> f.substring(file.getName().lastIndexOf(".") + 1)).get());  
     FileOutputStream fos = new FileOutputStream(file);
     List<Integer> test   = new ArrayList<>();
 
@@ -259,7 +268,6 @@ public class HttpServer implements Runnable {
         Thread thread = new Thread(server);
         thread.start();
         System.out.println();
-        System.out.println("Client connected, assigned a new thread.");
       }
     } catch (IOException e) {
       System.out.println("Exception caught when trying to listen on port "
