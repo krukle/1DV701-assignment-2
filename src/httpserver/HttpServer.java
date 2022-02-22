@@ -7,7 +7,6 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
@@ -15,10 +14,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.StringTokenizer;
@@ -30,8 +27,7 @@ public class HttpServer implements Runnable {
   private final String rootDirectory;
   private Socket clientSocket = null;
   private BufferedReader in;
-  private PrintWriter header;
-  private BufferedOutputStream payload;
+  private BufferedOutputStream out;
 
   HttpServer(String rootDirectory, Socket clientSocket) {
     this.rootDirectory = rootDirectory;
@@ -42,59 +38,43 @@ public class HttpServer implements Runnable {
   public void run() {
     System.out.println("Client connected, assigned a new thread.");
     try {
-      header = new PrintWriter(clientSocket.getOutputStream(), false);
-      payload = new BufferedOutputStream(clientSocket.getOutputStream());
-      in = new BufferedReader(
+      out = new BufferedOutputStream(clientSocket.getOutputStream());
+      in  = new BufferedReader(
           new InputStreamReader(clientSocket.getInputStream(), StandardCharsets.ISO_8859_1));
 
-      Map<String, String> headers = getHeaders(in);
-      System.out.println("---------------------------------------------------------------------");
-      System.out.println("Request from \"" + clientSocket.getRemoteSocketAddress() + "\":");
-      System.out.println("  Method: " + headers.get("Method"));
-      System.out.println("  Item: " + headers.get("Item"));
-      System.out.println("  Version: " + headers.get("Version"));
+      Map<String, String> headers = getHeaders();
+      printRequestDetails(headers);
 
-      if (headers.get("Method").equalsIgnoreCase("GET")) {
-        try {
-          if (headers.get("Item").equalsIgnoreCase("/redirect.html")) {
-            sendFile("index.html", StatusCode.REDIRECT);
-          } else {
-            sendFile(headers.get("Item"), StatusCode.OK);
-          }
-        } catch (NoSuchFileException e) {
-          sendString(StatusCode.NOT_FOUND);
+      try {
+        boolean validItem = isValidItem(headers.get("Item"));
+
+        if (headers.get("Method").equalsIgnoreCase("GET") && validItem) {
+          sendFile(headers.get("Item"), StatusCode.OK); 
+        } else if (headers.get("Method").equalsIgnoreCase("POST") && validItem) {
+          String fileName = getFilename();
+          parseImage(Integer.parseInt(headers.get("Content-Length")), getFile(fileName));
+          send(StatusCode.OK,
+              ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</a>")
+              .getBytes(), "text/html");
+        } else if (headers.get("Item").equalsIgnoreCase("/redirect.html")) {
+          sendFile("index.html", StatusCode.REDIRECT);
+        } else if (!validItem) {
+          sendStatusCode(StatusCode.NOT_FOUND);
+        } else {
+          sendStatusCode(StatusCode.INTERNAL_SERVER_ERROR);
         }
-      } else if (headers.get("Method").equalsIgnoreCase("POST")) {
-        String fileName = "";
-        while (!(fileName = in.readLine()).contains("filename=")) {} //Find file name
-        while (!in.readLine().isBlank()) {} //Find start of image data
-        fileName = fileName.split("filename=")[1].replace("\"", "");
-        
-        try {
-          //TODO: Should user be able to overwite existing images?
-          parseImage(getFile(fileName), in);
-          send(StatusCode.OK, ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</>").getBytes(), "text/html");
-        } catch (FileNotFoundException fnfe) {
-          sendString(StatusCode.BAD_REQUEST);
-          fnfe.printStackTrace();
-        } catch (IllegalArgumentException iae) {
-          sendString(StatusCode.BAD_REQUEST);
-          iae.printStackTrace();
-        }
-      } else {
-        sendString(StatusCode.INTERNAL_SERVER_ERROR);
+      } catch (FileNotFoundException | IllegalArgumentException e) {
+        sendStatusCode(StatusCode.BAD_REQUEST);
       }
     } catch (SocketException se) {
-      se.printStackTrace();
-      System.err.println("Unable to access closed socket.");
+      System.err.println("Unable to access closed socket: " + se.getMessage());
     } catch (IOException ioe) {
-      ioe.printStackTrace();
-      System.err.println("Something went wrong. Closing thread.");
+      System.err.println("Something went wrong. Closing thread: " + ioe.getMessage());
+    
     } finally {
       try {
         in.close();
-        header.close();
-        payload.close();
+        out.close();
         clientSocket.close();
         Thread.currentThread().interrupt();
         return;
@@ -105,12 +85,32 @@ public class HttpServer implements Runnable {
   }
 
   /**
+   * Finds filename in request body.
+   *
+   * @return the filename.
+   * @throws IOException if an I/O error occurs in inputstream.
+   */
+  private String getFilename() throws IOException {
+    String fileName = "";
+    while (!(fileName = in.readLine()).contains("filename=")) {} //Find file name
+    return fileName.split("filename=")[1].replace("\"", "");
+  }
+
+  private boolean isValidItem(String item) {
+    File f = new File(rootDirectory, item);
+    if (f.isDirectory()) {
+      f = new File(rootDirectory, Path.of(item, "index.html").toString());
+    }
+    return f.exists();
+  }
+
+  /**
    * Read the headers from the BufferedReader in and put them in a HashMap.
    *
    * @param in The BufferedReader
    * @return The HashMap containing the headers.
    */
-  private Map<String, String> getHeaders(BufferedReader in) throws IOException {
+  private Map<String, String> getHeaders() throws IOException {
     Map<String, String> headers = new HashMap<>();
     String header = in.readLine();
     StringTokenizer parse = new StringTokenizer(header);
@@ -127,41 +127,26 @@ public class HttpServer implements Runnable {
   /**
    * Parse the image data.
    *
+   * @param contentLength The length of the content.
    * @param file The File to write the data to.
-   * @param in The BufferedReader to read data from.
    */
-  private void parseImage(File file, BufferedReader in) 
+  private void parseImage(int contentLength, File file) 
       throws IOException, IllegalArgumentException {
     FileType fileType = FileType.fromString(
         Optional.ofNullable(file.getName()).filter(
           f -> f.contains(".")).map(f -> f.substring(file.getName().lastIndexOf(".") + 1)).get());  
+          
+    while (!in.readLine().isBlank()) {} //Find start of image data
+    char[] charData = new char[contentLength];
+    in.read(charData);
+    byte[] data = new String(charData).getBytes(StandardCharsets.ISO_8859_1);
+          
     FileOutputStream fos = new FileOutputStream(file);
-    List<Integer> test   = new ArrayList<>();
-
-    while (test.add(in.read())) {
-      if (test.size() == fileType.start.size()) {
-        if (test.equals(fileType.start)) {
-          test.clear();
-          break;
-        }
-        test.remove(0);
-      }
-    }
-    for (Integer b : fileType.start) {
-      fos.write(b);
-    }
-    int ch = 0;
-    while ((ch = in.read()) != -1) {
-      test.add(ch);
-      if (test.size() == fileType.end.size()) {
-        if (test.equals(fileType.end)) {
-          fos.write(ch);
-          break;
-        }
-        test.remove(0);
-      }
-      fos.write(ch);
-    }
+    int startIndex = KmpMatch.indexOf(data, fileType.start);
+    int endIndex = KmpMatch.indexOf(data, fileType.end);
+    System.out.println("Index of pattern start: " + startIndex);
+    System.out.println("Index of pattern end: " + endIndex);
+    fos.write(data, startIndex, endIndex + fileType.end.length);
     fos.flush();
     fos.close();
   }
@@ -182,13 +167,25 @@ public class HttpServer implements Runnable {
   }
 
   /**
-   * Generates a header message using statusCode and sends it through PrintWriter; header.
-   * Generates a bytearray from statusCode and sends it through BufferedOutputStream; payload.
+   * Print the request details.
    *
-   * @param statusCode HTTP status code.
-   * @throws IOException If an I/O occurs in BufferedOutputStream; payload.
+   * @param headers The headers to get details from.
    */
-  private void sendString(StatusCode statusCode) throws IOException {
+  private void printRequestDetails(Map<String, String> headers) {
+    System.out.println("---------------------------------------------------------------------");
+    System.out.println("Request from \"" + clientSocket.getRemoteSocketAddress() + "\":");
+    System.out.println("  Method: " + headers.get("Method"));
+    System.out.println("  Item: " + headers.get("Item"));
+    System.out.println("  Version: " + headers.get("Version"));
+  }
+
+  /**
+   * Send a status code to outputstream.
+   *
+   * @param statusCode the statusCode to send.
+   * @throws IOException if an I/O error occurs in BufferedOuutputStream.
+   */
+  private void sendStatusCode(StatusCode statusCode) throws IOException {
     String status = statusCode.toString();
     byte[] output = status.getBytes();
     send(statusCode, output, "text/plain");
@@ -198,21 +195,33 @@ public class HttpServer implements Runnable {
    * Send a HTTP 200 OK with specified item as payload.
    *
    * @param item The name of the item to look for.
+   * @param statusCode the status code to send.
    * @throws IOException if the file can't be read.
+   * @throws NoSuchFileException if the item does not point to a file.
    */
-  private void sendFile(String item, StatusCode statusCode) throws IOException {
+  private void sendFile(String item, StatusCode statusCode) 
+      throws IOException, NoSuchFileException {
     File file;
     try {
       file   = getFile(item);
     } catch (FileNotFoundException e) {
       file = new File(rootDirectory, "index.html");
     }
+
     final Path path   = file.toPath();
     final String type = Files.probeContentType(path);
     final byte[] data = Files.readAllBytes(path);
     send(statusCode, data, type);
   }
 
+  /**
+   * Writes data to outputstream with following status code and type.
+   *
+   * @param statusCode the status code to be sent.
+   * @param data the data to be sent.
+   * @param type the type of data.
+   * @throws IOException if an I/O error occurs in BufferedOutputStream.
+   */
   private void send(StatusCode statusCode, byte[] data, String type) throws IOException {
     String version = "HTTP/1.1 ";
     String status = statusCode.toString();
@@ -225,17 +234,18 @@ public class HttpServer implements Runnable {
     System.out.println("  Version: " + version);
     System.out.println("  Status: " + status);
     System.out.println("  " + String.join("\r\n  ", server, date, contentType, length));
-    header.println(String.join("\r\n", (version + status), server, date, contentType, length));
-    header.println();
-    header.flush();
-    payload.write(data);
-    payload.flush();
+
+    out.write(
+        (String.join("\r\n", (version + status), server, date, contentType, length)).getBytes());
+    out.write("\r\n\r\n".getBytes());
+    out.write(data);
+    out.flush();
   }
 
   /**
    * Verifies arguments and runs an instance of HttpServer. 
    *
-   * @param args Integer; port number & String; path.
+   * @param args Integer port number & String path.
    */
   public static void main(String[] args) {
     if (args.length != 2) {

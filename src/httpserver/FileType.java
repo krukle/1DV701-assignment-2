@@ -1,21 +1,18 @@
 package httpserver;
 
-import java.util.Arrays;
-import java.util.List;
-
 enum FileType {
-  PNG(Arrays.asList(137, 80, 78, 71, 13, 10, 26, 10),
-      Arrays.asList(73, 69, 78, 68, 174, 66, 96, 130), 
-      Arrays.asList("png")),
-  JPG(Arrays.asList(255, 216, 255), 
-      Arrays.asList(255, 217, 13, 10), 
-      Arrays.asList("jpg", "jpeg", "jpe", "jif", "jfif", "jfi"));
+  PNG(new byte[]{-119, 80, 78, 71, 13, 10, 26, 10},
+      new byte[]{73, 69, 78, 68, -82, 66, 96, -126}, 
+      new String[]{"png"}),
+  JPG(new byte[]{-1, -40, -1}, 
+      new byte[]{-1, -39, 13, 10}, 
+      new String[]{"jpg", "jpeg", "jpe", "jif", "jfif", "jfi"});
 
-  public List<Integer> start;
-  public List<Integer> end;
-  public List<String> extensions;
+  public byte[] start;
+  public byte[] end;
+  public String[] extensions;
 
-  FileType(List<Integer> start, List<Integer> end, List<String> extensions) {
+  FileType(byte[] start, byte[] end, String[] extensions) {
     this.start     = start;
     this.end       = end;
     this.extensions = extensions;
