@@ -69,8 +69,8 @@ public class HttpServer implements Runnable {
         
         fileName = fileName.split("filename=")[1].replace("\"", "");
         try {
-          //TODO: Choose correct FileType depending on headers.
-          parseImage(getFile(fileName), in, FileType.JPG);
+          //TODO: Should user be able to overwite existing images?
+          parseImage(getFile(fileName), in);
           send(StatusCode.OK, ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</>").getBytes(), "text/html");
         } catch (FileNotFoundException fnfe) {
           sendString(StatusCode.BAD_REQUEST);
@@ -123,11 +123,12 @@ public class HttpServer implements Runnable {
    *
    * @param file The File to write the data to.
    * @param in The BufferedReader to read data from.
-   * @param fileType The type of image to parse.
    */
-  private void parseImage(File file, BufferedReader in, FileType fileType) throws IOException {
+  private void parseImage(File file, BufferedReader in) throws IOException {
+    FileType fileType    = FileType.fromString(file.getName().split("\\.")[1]);  
     FileOutputStream fos = new FileOutputStream(file);
-    List<Integer> test = new ArrayList<>();
+    List<Integer> test   = new ArrayList<>();
+
     while (test.add(in.read())) {
       if (test.size() == fileType.start.size()) {
         if (test.equals(fileType.start)) {
