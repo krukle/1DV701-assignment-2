@@ -77,7 +77,7 @@ public class HttpServer implements Runnable {
       header = new PrintWriter(clientSocket.getOutputStream(), false);
       payload = new BufferedOutputStream(clientSocket.getOutputStream());
       in = new BufferedReader(
-        new InputStreamReader(clientSocket.getInputStream(), StandardCharsets.ISO_8859_1));
+          new InputStreamReader(clientSocket.getInputStream(), StandardCharsets.ISO_8859_1));
 
       Map<String, String> headers = getHeaders(in);
       System.out.println("---------------------------------------------------------------------");
@@ -208,6 +208,7 @@ public class HttpServer implements Runnable {
   /**
    * Generates a header message using statusCode and sends it through PrintWriter; header.
    * Generates a bytearray from statusCode and sends it through BufferedOutputStream; payload.
+   *
    * @param statusCode HTTP status code.
    * @throws IOException If an I/O occurs in BufferedOutputStream; payload.
    */
