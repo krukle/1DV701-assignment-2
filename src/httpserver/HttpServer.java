@@ -99,16 +99,13 @@ public class HttpServer implements Runnable {
 
   private boolean isValidItem(String item) {
     File f = new File(rootDirectory, item);
-    System.out.println("0" + f.getAbsolutePath());
     if (f.isDirectory()) {
-      System.out.println(1);
       try {
         f = new File(rootDirectory, Path.of(item, "index.html").toString());
       } catch (InvalidPathException | NullPointerException e) {
         //TODO: This is the exception that screws us I think. 
         //Works like this but there should be a nicer way to do this.
       }
-      System.out.println("2");
     }
     return f.exists();
   }
