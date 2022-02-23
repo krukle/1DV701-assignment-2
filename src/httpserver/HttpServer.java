@@ -12,7 +12,6 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Date;
@@ -47,19 +46,20 @@ public class HttpServer implements Runnable {
       printRequestDetails(headers);
 
       try {
-        boolean validItem = isValidItem(headers.get("Item"));
+        File item = getFile(headers.get("Item"));
 
-        if (headers.get("Method").equalsIgnoreCase("GET") && validItem) {
-          sendFile(headers.get("Item"), StatusCode.OK); 
-        } else if (headers.get("Method").equalsIgnoreCase("POST") && validItem) {
+        if (headers.get("Method").equalsIgnoreCase("GET") && item != null) {
+          sendFile(item, StatusCode.OK); 
+        } else if (headers.get("Method").equalsIgnoreCase("POST") && item != null) {
           String fileName = getFilename();
-          parseImage(Integer.parseInt(headers.get("Content-Length")), getFile(fileName));
+          parseImage(Integer.parseInt(headers.get("Content-Length")), 
+            new File(rootDirectory, fileName));
           send(StatusCode.OK,
               ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</a>")
               .getBytes(), "text/html");
         } else if (headers.get("Item").equalsIgnoreCase("/redirect.html")) {
-          sendFile("index.html", StatusCode.REDIRECT);
-        } else if (!validItem) {
+          sendFile(new File(rootDirectory, "index.html"), StatusCode.REDIRECT);
+        } else if (item == null) {
           sendStatusCode(StatusCode.NOT_FOUND);
         } else {
           sendStatusCode(StatusCode.INTERNAL_SERVER_ERROR);
@@ -95,19 +95,6 @@ public class HttpServer implements Runnable {
     String fileName = "";
     while (!(fileName = in.readLine()).contains("filename=")) {} //Find file name
     return fileName.split("filename=")[1].replace("\"", "");
-  }
-
-  private boolean isValidItem(String item) {
-    File f = new File(rootDirectory, item);
-    if (f.isDirectory()) {
-      try {
-        f = new File(rootDirectory, Path.of(item, "index.html").toString());
-      } catch (InvalidPathException | NullPointerException e) {
-        //TODO: This is the exception that screws us I think. 
-        //Works like this but there should be a nicer way to do this.
-      }
-    }
-    return f.exists();
   }
 
   /**
@@ -165,11 +152,13 @@ public class HttpServer implements Runnable {
    * @throws FileNotFoundException if the item is a directory.
    */
   private File getFile(String item) throws FileNotFoundException {
-    File htmlFile = new File(rootDirectory, item);
-    if (htmlFile.isDirectory()) {
-      throw new FileNotFoundException("The requested item is a directory.");
+    File f = new File(rootDirectory, item);
+    if (f.isDirectory()) {
+      if (f.listFiles((dir, name) -> name.equals("index.html")).length == 1) {
+        return f = new File(f, "index.html");
+      }
     }
-    return htmlFile;
+    return f.exists() ? f : null;
   }
 
   /**
@@ -205,16 +194,10 @@ public class HttpServer implements Runnable {
    * @throws IOException if the file can't be read.
    * @throws NoSuchFileException if the item does not point to a file.
    */
-  private void sendFile(String item, StatusCode statusCode) 
+  private void sendFile(File item, StatusCode statusCode) 
       throws IOException, NoSuchFileException {
-    File file;
-    try {
-      file   = getFile(item);
-    } catch (FileNotFoundException e) {
-      file = new File(rootDirectory, "index.html");
-    }
 
-    final Path path   = file.toPath();
+    final Path path   = item.toPath();
     final String type = Files.probeContentType(path);
     final byte[] data = Files.readAllBytes(path);
     send(statusCode, data, type);
