@@ -76,11 +76,18 @@ def requestImage(p, pn):
         print(f'Error: {pn} has content type {r.headers["content-type"]}')
         return False
 
+    ## (2022 ls223qx) - Kudos to Albert - ah225ex for finding a problem here and providing a fix!
     image = loadImage(p)
     if 'content-length' in r.headers:
-        if r.headers['content-length'] == len(image):
+        contentLengthVar = r.headers['content-length']
+        if not r.headers['content-length'].isdigit():
+            print(f'Error: {pn} content length not a number.')
+            print(f'Got instead: {contentLengthVar}')
+            return False
+        elif int(r.headers['content-length']) != len(image):
             print(f'Error: {pn} content length incorrect')
-            return False   
+            print(f'Image len is {len(image)} and contentlength is {contentLengthVar}.')
+            return False
     else:
         print(f'Notice: {pn} has no content length header')
 
