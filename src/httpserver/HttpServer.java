@@ -125,20 +125,21 @@ public class HttpServer implements Runnable {
    */
   private void parseImage(int contentLength, File file) 
       throws IOException, IllegalArgumentException {
-    FileType fileType = FileType.fromString(
-        Optional.ofNullable(file.getName()).filter(
-          f -> f.contains(".")).map(f -> f.substring(file.getName().lastIndexOf(".") + 1)).get());  
-          
     while (!in.readLine().isBlank()) {} //Find start of image data
     char[] charData = new char[contentLength];
     in.read(charData);
     byte[] data = new String(charData).getBytes(StandardCharsets.ISO_8859_1);
-          
-    FileOutputStream fos = new FileOutputStream(file);
+    
+    FileType fileType = FileType.fromString(
+        Optional.ofNullable(file.getName()).filter(
+          f -> f.contains(".")).map(f -> f.substring(file.getName().lastIndexOf(".") + 1)).get()); 
+ 
     int startIndex = KmpMatch.indexOf(data, fileType.start);
     int endIndex = KmpMatch.indexOf(data, fileType.end);
-    System.out.println("Index of pattern start: " + startIndex);
-    System.out.println("Index of pattern end: " + endIndex);
+    if (startIndex < 0 || endIndex < 0) {
+      return;
+    }
+    FileOutputStream fos = new FileOutputStream(file);
     fos.write(data, startIndex, endIndex + fileType.end.length);
     fos.flush();
     fos.close();
