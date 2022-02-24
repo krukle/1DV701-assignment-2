@@ -79,8 +79,8 @@ public class HttpServer implements Runnable {
         clientSocket.close();
         Thread.currentThread().interrupt();
         return;
-      } catch (Exception e) {
-        System.err.println("Error closing stream: " + e.getMessage());
+      } catch (IOException ioe) {
+        System.err.println("Error closing stream: " + ioe.getMessage());
       }
     }
   }
