@@ -3,16 +3,13 @@ package httpserver;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Date;
 import java.util.HashMap;
@@ -36,7 +33,10 @@ public class HttpServer implements Runnable {
 
   @Override
   public void run() {
+    System.out.println();
     System.out.println("Client connected, assigned a new thread.");
+    System.out.println();
+
     try {
       out = new BufferedOutputStream(clientSocket.getOutputStream());
       in  = new BufferedReader(
@@ -57,23 +57,26 @@ public class HttpServer implements Runnable {
           send(StatusCode.OK,
               ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</a>")
               .getBytes(), "text/html");
-        } else if (headers.get("Item").equalsIgnoreCase("/redirect.html")) {
-          sendFile(new File(rootDirectory, "index.html"), StatusCode.REDIRECT);
+        } else if (headers.get("Item").equalsIgnoreCase("/a/redirect.html")) {
+          String newLocation = "/redirect.html";
+          String html = "The resource has moved to <a href=\"" + newLocation + "\">here</a>";
+          send(StatusCode.REDIRECT, html.getBytes(), "text/html", "Location: /redirect.html");
         } else if (item == null) {
           sendStatusCode(StatusCode.NOT_FOUND);
         } else {
           sendStatusCode(StatusCode.INTERNAL_SERVER_ERROR);
         }
-      } catch (FileNotFoundException | IllegalArgumentException e) {
+      } catch (IllegalArgumentException iae) {
         sendStatusCode(StatusCode.BAD_REQUEST);
       }
-    } catch (SocketException se) {
-      System.err.println("Unable to access closed socket: " + se.getMessage());
     } catch (IOException ioe) {
       System.err.println("Something went wrong. Closing thread: " + ioe.getMessage());
     
     } finally {
       try {
+        while (in.ready()) {
+          in.readLine();
+        }
         in.close();
         out.close();
         clientSocket.close();
@@ -122,6 +125,8 @@ public class HttpServer implements Runnable {
    *
    * @param contentLength The length of the content.
    * @param file The File to write the data to.
+   * @throws IOException if an I/O error occurs.
+   * @throws IllegalArgumentException If the file ending has no supported FileType.
    */
   private void parseImage(int contentLength, File file) 
       throws IOException, IllegalArgumentException {
@@ -150,9 +155,8 @@ public class HttpServer implements Runnable {
    *
    * @param item The name of item to look for.
    * @return File object of the specified item.
-   * @throws FileNotFoundException if the item is a directory.
    */
-  private File getFile(String item) throws FileNotFoundException {
+  private File getFile(String item) {
     File f = new File(rootDirectory, item);
     if (f.isDirectory()) {
       if (f.listFiles((dir, name) -> name.equals("index.html")).length == 1) {
@@ -168,7 +172,6 @@ public class HttpServer implements Runnable {
    * @param headers The headers to get details from.
    */
   private void printRequestDetails(Map<String, String> headers) {
-    System.out.println("---------------------------------------------------------------------");
     System.out.println("Request from \"" + clientSocket.getRemoteSocketAddress() + "\":");
     System.out.println("  Method: " + headers.get("Method"));
     System.out.println("  Item: " + headers.get("Item"));
@@ -192,12 +195,9 @@ public class HttpServer implements Runnable {
    *
    * @param item The name of the item to look for.
    * @param statusCode the status code to send.
-   * @throws IOException if the file can't be read.
-   * @throws NoSuchFileException if the item does not point to a file.
+   * @throws IOException if and I/O error occurs during read of file.
    */
-  private void sendFile(File item, StatusCode statusCode) 
-      throws IOException, NoSuchFileException {
-
+  private void sendFile(File item, StatusCode statusCode) throws IOException {
     final Path path   = item.toPath();
     final String type = Files.probeContentType(path);
     final byte[] data = Files.readAllBytes(path);
@@ -210,23 +210,30 @@ public class HttpServer implements Runnable {
    * @param statusCode the status code to be sent.
    * @param data the data to be sent.
    * @param type the type of data.
+   * @param extraHeaders Optional extra headers to be added and printed.
    * @throws IOException if an I/O error occurs in BufferedOutputStream.
    */
-  private void send(StatusCode statusCode, byte[] data, String type) throws IOException {
+  private void send(StatusCode statusCode, byte[] data, String type, String... extraHeaders)
+      throws IOException {
     String version = "HTTP/1.1 ";
     String status = statusCode.toString();
     String server = "Server: Java Server from Christoffer and Olof";
     String date = "Date: " + new Date();
     String contentType = "Content-type: " + ((type != null) ? type : "text/html");
     String length = "Content-length: " + data.length;
+    String connection = "Connection: close";
 
     System.out.println("Response:");
     System.out.println("  Version: " + version);
     System.out.println("  Status: " + status);
-    System.out.println("  " + String.join("\r\n  ", server, date, contentType, length));
+    System.out.println("  " + String.join("\r\n  ", server, date, contentType, length, connection));
 
-    out.write(
-        (String.join("\r\n", (version + status), server, date, contentType, length)).getBytes());
+    out.write((String.join(
+        "\r\n", (version + status), server, date, contentType, length, connection)).getBytes());
+    for (String header : extraHeaders) {
+      System.out.println("  " + header);
+      out.write(("\r\n" + header).getBytes());
+    }
     out.write("\r\n\r\n".getBytes());
     out.write(data);
     out.flush();
@@ -248,6 +255,10 @@ public class HttpServer implements Runnable {
 
     try {
       portNumber = Integer.parseInt(args[0]);
+      if (0 >= portNumber || portNumber >= 65535) {
+        System.err.println("The port needs to be in range 0-65535");
+        System.exit(1);
+      }
     } catch (NumberFormatException e) {
       System.err.println("The port needs to be a number.");
       System.exit(1);
@@ -267,7 +278,6 @@ public class HttpServer implements Runnable {
         HttpServer server = new HttpServer(path.toString(), serverSocket.accept());
         Thread thread = new Thread(server);
         thread.start();
-        System.out.println();
       }
     } catch (IOException e) {
       System.out.println("Exception caught when trying to listen on port "

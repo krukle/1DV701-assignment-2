@@ -34,34 +34,27 @@ awdawd
 ![Directory](img/directory-with-index.png)  
 
 ### Exceptions
-
-#### FileNotFoundException
-
 #### IllegalArgumentException
-
-#### SocketException
-
-
+During the POST if an unsupported filetype is uploaded a BAD REQUEST HTTP status will be sent. This exception is thrown by `FileType.fromString()`. 
 
 #### IOException
+If an Input output error ever occurs during the course of the thread or the main program an error message will be printed. In the case of the thread the socket, output/input streams and thread itself will be closed. 
 
-If an input or output error occurs during creation of the output socket stream or if the socket is not connected.
-
-If an input or output error occurs during closing of streams and sockets, an `IOException` will occur.
+#### NumberFormatException
+If the first argument; ´port number´ does not contain a parsable Integer an error message is printed and the program shuts down. 
 
 ## Problem 2
-### 302 Redirect
-![302 Redirect](img/redirect.png)  
-Navigating to the URL `/redirect.html` the 302 response code will be triggered and you are redirected to the `index.html` page in the root folder.
+### 302 Found
+![302 Found](img/302_found.png)  
+Navigating to the URL `/a/redirect.html` the `302 Found` response code will be triggered with a `Location` header containing `/redirect.html`. This redirects you to `/redirect.html` with a `200 OK` response.
 
 ### 404 Not Found
 ![404 Not Found](img/not-found.png)  
-
-Make a request to any file or directory that does not exist in the `public` folder and the 404 response will be triggered.
+The `404 Not Found` response code is triggered by making a request to any file or directory that does not exist in the `public` folder.
 
 ### 500 Internal Server Error
 ![500 Internal Server Error](img/internal-server-error.png)  
-Make any request that is not GET or POST and the 500 Internal Server Error will be triggered.
+Make any request other than the supported `GET` or `POST` and the 500 Internal Server Error will be triggered.
 
 ## VG
-For the image parsing we are looking for the specific start bytes of a PNG file or JPG file. This indicates the start of bytes to write to the image. We then do the same for the end bytes of PNG and JPG. To look for the start or end sequence we use the Knuth-Morris-Pratt algorithm for pattern matching.
+For the image parsing we are looking for the specific start bytes of any supported image formats (PNG and JPG currently). This indicates the start set of bytes to write to the image. We then do the same for the end bytes. To look for the start and end sequence we use an algorithm for pattern matching. At first we wrote our own algorithm. However, due to bad performnence, we ended up using the [Knuth-Morris-Pratt algorithm](https://stackoverflow.com/a/1507813).
