@@ -48,20 +48,18 @@ public class HttpServer implements Runnable {
       try {
         File item = getFile(headers.get("Item"));
 
-        if (headers.get("Method").equalsIgnoreCase("GET") && item != null) {
+        if (headers.get("Method").equalsIgnoreCase("GET") && item != null) { 
           sendFile(item, StatusCode.OK); 
         } else if (headers.get("Method").equalsIgnoreCase("POST") && item != null) {
-          String fileName = getFilename();
+          String fname = getFilename();
           parseImage(Integer.parseInt(headers.get("Content-Length")), 
-            new File(rootDirectory, fileName));
-          send(StatusCode.OK,
-              ("You will find your image at: <a href=\"/" + fileName + "\">" + fileName + "</a>")
-              .getBytes(), "text/html");
+            new File(rootDirectory, fname));
+          send(StatusCode.OK, ("<img src='" + fname + "' width='600'>").getBytes(), "text/html");
         } else if (headers.get("Item").equalsIgnoreCase("/a/redirect.html")) {
           String newLocation = "/redirect.html";
           String html = "The resource has moved to <a href=\"" + newLocation + "\">here</a>";
           send(StatusCode.REDIRECT, html.getBytes(), "text/html", "Location: /redirect.html");
-        } else if (item == null) {
+        } else if (item == null) { 
           sendStatusCode(StatusCode.NOT_FOUND);
         } else {
           sendStatusCode(StatusCode.INTERNAL_SERVER_ERROR);
@@ -103,8 +101,8 @@ public class HttpServer implements Runnable {
   /**
    * Read the headers from the BufferedReader in and put them in a HashMap.
    *
-   * @param in The BufferedReader
-   * @return The HashMap containing the headers.
+   * @param in The BufferedReader input stream.
+   * @return The HashMap containing the headers. Key = Header name. Value = Header value.
    */
   private Map<String, String> getHeaders() throws IOException {
     Map<String, String> headers = new HashMap<>();
@@ -142,7 +140,7 @@ public class HttpServer implements Runnable {
     int startIndex = KmpMatch.indexOf(data, fileType.start);
     int endIndex = KmpMatch.indexOf(data, fileType.end);
     if (startIndex < 0 || endIndex < 0) {
-      return;
+      throw new IllegalArgumentException("Corrupted image data.");
     }
     FileOutputStream fos = new FileOutputStream(file);
     fos.write(data, startIndex, endIndex + fileType.end.length);
@@ -159,8 +157,9 @@ public class HttpServer implements Runnable {
   private File getFile(String item) {
     File f = new File(rootDirectory, item);
     if (f.isDirectory()) {
-      if (f.listFiles((dir, name) -> name.equals("index.html")).length == 1) {
-        return f = new File(f, "index.html");
+      File[] files = f.listFiles((d, n) -> n.equals("index.html") || n.equals("index.htm"));
+      if (files.length > 0) {
+        return files[0];
       }
     }
     return f.exists() ? f : null;

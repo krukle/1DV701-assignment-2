@@ -1,5 +1,8 @@
 package httpserver;
 
+/**
+ * Enum representation of HTTP status codes. 
+ */
 enum StatusCode {
   OK(200, "OK"),
   REDIRECT(302, "Found"),
@@ -10,6 +13,14 @@ enum StatusCode {
   public int code;
   public String msg;
 
+  /**
+   * <p>Constructor for StatusCode.</p>
+   * <p>See link for description of status codes:</p>
+   * https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
+   *
+   * @param code Status code.
+   * @param msg Status message.
+   */
   StatusCode(int code, String msg) {
     this.code = code;
     this.msg = msg;

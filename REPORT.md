@@ -14,24 +14,24 @@ Email: oe222fh@student.lnu.se
   - [Table of contents](#table-of-contents)
   - [Problem 1](#problem-1)
     - [Exceptions](#exceptions)
-      - [FileNotFoundException](#filenotfoundexception)
       - [IllegalArgumentException](#illegalargumentexception)
-      - [SocketException](#socketexception)
       - [IOException](#ioexception)
+      - [NumberFormatException](#numberformatexception)
   - [Problem 2](#problem-2)
-    - [302 Redirect](#302-redirect)
+    - [302 Found](#302-found)
     - [404 Not Found](#404-not-found)
     - [500 Internal Server Error](#500-internal-server-error)
   - [VG](#vg)
 
 ## Problem 1
 ![Named HTML page](img/named-html-page.png)  
-awdawd
+A request to a named page.
 
 ![Image support](img/image.png)  
-awdawd
+A request to an image.
 
 ![Directory](img/directory-with-index.png)  
+A request to a directory.
 
 ### Exceptions
 #### IllegalArgumentException
