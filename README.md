@@ -1,6 +1,8 @@
-# 1DV701-assignment-2
+# HTTP Server for course 1DV701
 
-## Problem 1
+## Assignment instructions
+
+### Problem 1
 Implement a simple web server that accepts multiple client connections on some port (e.g., 8888) using the `ServerSocket` class. The server should serve (at least) HTML and PNG files from a local directory, using the `GET`
 method in the HTTP protocol.
 
@@ -58,7 +60,7 @@ Your web server should be robust -- you have to handle possible exceptions. Docu
 you handle and why. Do NOT allow a user to escape the public directory and access other files on the
 computer.
 
-## Problem 2
+### Problem 2
 The web server you implemented in Problem 1 only supports the HTTP response 200 OK . You should now
 add support for the following response types:
 - 302
